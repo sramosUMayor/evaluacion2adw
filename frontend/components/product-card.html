@@ -1,0 +1,19 @@
+<article class="producto-card fade-in">
+    <img src="{{image_url}}" alt="{{name}}" class="producto-imagen">
+    <div class="producto-info">
+        <h3 class="producto-nombre">{{name}}</h3>
+        <p class="producto-descripcion">{{description}}</p>
+        <div style="margin: 0.5rem 0; font-size: 0.875rem; color: var(--color-texto-claro);">
+            <span>💧 {{watering}}</span> • <span>☀️ {{light}}</span>
+        </div>
+        <div class="producto-footer">
+            <div>
+                <p class="producto-precio">${{price}}</p>
+                <p class="producto-stock">{{stock_label}}</p>
+            </div>
+        </div>
+        <button onclick="addToCart({{id}})" class="btn btn-primary" style="width: 100%; margin-top: 1rem;" {{disabled}}>
+            🛒 Agregar
+        </button>
+    </div>
+</article>
