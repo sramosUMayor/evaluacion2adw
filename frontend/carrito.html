@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Carrito de compras - Revisa y confirma tu pedido en Flora Verde">
+    <title>Mi Carrito - Flora Verde</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+
+<body>
+    <div id="header-placeholder"></div>
+
+    <div class="container">
+        <div class="breadcrumbs"></div>
+    </div>
+
+    <section class="section">
+        <div class="container">
+            <h1 class="section-title">Mi Carrito de Compras</h1>
+
+            <div style="display: grid; grid-template-columns: 1fr; gap: 2rem;">
+
+                <div class="col-lg-8">
+                    <p>Cargando carrito...</p>
+                </div>
+            </div>
+
+            <div style="background-color: white; padding: 2rem; border-radius: 12px; box-shadow: var(--sombra-lg); margin-top: 2rem;">
+                <h2 style="color: var(--color-principal); margin-bottom: 1.5rem; font-size: 1.5rem; text-align: center;">
+                    Resumen del Pedido
+                </h2>
+
+                <div id="order-summary-placeholder"></div>
+
+                <div style="margin-top: 1.5rem; padding: 1rem; background-color: var(--color-fondo); border-radius: 8px; text-align: center;">
+                    <p style="color: var(--color-exito); font-weight: 600; margin-bottom: 0.5rem;">
+                        ✓ ¡Envío gratis en compras sobre $50.000!
+                    </p>
+                    <p style="font-size: 0.875rem; color: var(--color-texto-claro);">
+                        💚 Todas nuestras plantas incluyen garantía de 7 días
+                    </p>
+                </div>
+
+                <button onclick="proceedToCheckout()" class="btn btn-success" style="width: 100%; margin-top: 1.5rem; padding: 1rem; font-size: 1.125rem;">
+                    🛒 Proceder al Checkout
+                </button>
+
+                <p style="text-align: center; margin-top: 1rem; font-size: 0.875rem; color: var(--color-texto-claro);">
+                    🔒 Pago seguro y protegido
+                </p>
+            </div>
+
+            <div id="features-placeholder"></div>
+
+            <div style="margin-top: 3rem;">
+                <h2 class="section-title">También te puede interesar</h2>
+                <div class="productos-grid">
+                    <!-- Products will be loaded dynamically -->
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div id="footer-placeholder"></div>
+
+    <script src="js/components.js"></script>
+    <script src="js/app.js"></script>
+</body>
+
+</html>

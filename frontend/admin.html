@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Administración de Productos - Flora Verde</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <style>
+        .admin-container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+
+        .admin-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        .product-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            box-shadow: var(--sombra-sm);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .product-table th,
+        .product-table td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--color-borde);
+        }
+
+        .product-table th {
+            background-color: var(--color-principal);
+            color: white;
+        }
+
+        .action-btn {
+            padding: 0.5rem;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            margin-right: 0.5rem;
+        }
+
+        .edit-btn {
+            background-color: #ffc107;
+            color: #000;
+        }
+
+        .delete-btn {
+            background-color: #dc3545;
+            color: white;
+        }
+
+                .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: bold;
+        }
+
+        .form-group input:not([type="checkbox"]),
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid var(--color-borde);
+            border-radius: 4px;
+        }
+
+        .checkbox-group label {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+        }
+
+        .checkbox-group input {
+            width: auto;
+            margin-right: 0.5rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="header-placeholder"></div>
+
+    <div class="admin-container">
+        <div class="admin-header">
+            <h1>Gestión de Productos</h1>
+            <button class="btn btn-primary" onclick="openProductModal()">+ Nuevo Producto</button>
+        </div>
+
+        <table class="product-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Imagen</th>
+                    <th>Nombre</th>
+                    <th>Categoría</th>
+                    <th>Precio</th>
+                    <th>Stock</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody id="productsTableBody">
+            </tbody>
+        </table>
+    </div>
+
+    <div id="productModal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 600px; text-align: left;">
+            <h2 id="modalTitle" style="margin-bottom: 1.5rem;">Nuevo Producto</h2>
+            <form id="productForm">
+                <input type="hidden" id="productId">
+
+                <div class="form-group">
+                    <label>Nombre</label>
+                    <input type="text" id="productName" required>
+                </div>
+
+                <div class="form-group">
+                    <label>Descripción</label>
+                    <textarea id="productDescription" rows="3"></textarea>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group">
+                        <label>Precio</label>
+                        <input type="number" id="productPrice" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Categoría</label>
+                        <select id="productCategory">
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>URL Imagen</label>
+                    <input type="url" id="productImage" required>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group">
+                        <label>Riego</label>
+                        <select id="productWatering">
+                            <option value="Poco riego">Poco riego</option>
+                            <option value="Muy poco riego">Muy poco riego</option>
+                            <option value="Riego moderado">Riego moderado</option>
+                            <option value="Riego frecuente">Riego frecuente</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Luz</label>
+                        <select id="productLight">
+                            <option value="Luz baja">Luz baja</option>
+                            <option value="Luz baja-media">Luz baja-media</option>
+                            <option value="Luz baja-alta">Luz baja-alta</option>
+                            <option value="Luz indirecta">Luz indirecta</option>
+                            <option value="Luz brillante">Luz brillante</option>
+                            <option value="Luz directa">Luz directa</option>
+                            <option value="Sol directo">Sol directo</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group checkbox-group">
+                    <label>
+                        <input type="checkbox" id="productStock" checked> En Stock
+                    </label>
+                </div>
+
+                <div style="text-align: right; margin-top: 2rem;">
+                    <button type="button" class="btn btn-secondary" onclick="closeProductModal()">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="footer-placeholder"></div>
+
+    <script src="js/components.js"></script>
+    <script src="js/admin.js"></script>
+</body>
+
+</html>
