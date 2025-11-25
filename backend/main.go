@@ -1,454 +1,275 @@
 package main
 
 import (
-	"database/sql"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"strconv"
 
-	_ "modernc.org/sqlite"
+	"github.com/gin-gonic/gin"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
+
 type Category struct {
-	ID   int    `json:"id"`
-	Name string `json:"name"`
+	ID   uint   `json:"id" gorm:"primaryKey"`
+	Name string `json:"name" gorm:"unique;not null"`
 }
 
 type Product struct {
-	ID          int    `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Price       int    `json:"price"`
-	ImageURL    string `json:"image_url"`
-	Watering    string `json:"watering"`
-	Light       string `json:"light"`
-	CategoryID  int    `json:"category_id"`
-	Category    string `json:"category"`
-	Stock       bool   `json:"stock"`
+	ID           uint     `json:"id" gorm:"primaryKey"`
+	Name         string   `json:"name" gorm:"not null"`
+	Description  string   `json:"description"`
+	Price        int      `json:"price"`
+	ImageURL     string   `json:"image_url"`
+	Watering     string   `json:"watering"`
+	Light        string   `json:"light"`
+	CategoryID   uint     `json:"category_id"`
+	Category     Category `json:"-" gorm:"foreignKey:CategoryID"`
+	CategoryName string   `json:"category" gorm:"-"`
+	Stock        bool     `json:"stock"`
 }
 
 type OrderItem struct {
-	ProductID int `json:"product_id"`
-	Quantity  int `json:"quantity"`
+	ID        uint `json:"-" gorm:"primaryKey"`
+	OrderID   uint `json:"-"`
+	ProductID uint `json:"product_id"`
+	Quantity  int  `json:"quantity"`
 }
 
 type Order struct {
-	ID            int         `json:"id"`
+	ID            uint        `json:"id" gorm:"primaryKey"`
 	CustomerName  string      `json:"customer_name"`
 	CustomerEmail string      `json:"customer_email"`
 	Address       string      `json:"address"`
-	Items         []OrderItem `json:"items"`
+	Items         []OrderItem `json:"items" gorm:"foreignKey:OrderID"`
 	Total         int         `json:"total"`
+	CreatedAt     int64       `json:"created_at" gorm:"autoCreateTime"`
 }
 
-var db *sql.DB
+var db *gorm.DB
 
 func main() {
-
 	initFlag := flag.Bool("init", false, "Initialize database with seed data")
 	flag.Parse()
 
 	var err error
-
-	db, err = sql.Open("sqlite", "./floraverde.db")
+	db, err = gorm.Open(sqlite.Open("floraverde.db"), &gorm.Config{})
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("failed to connect database:", err)
 	}
-	defer db.Close()
 
-	createTables()
+	err = db.AutoMigrate(&Category{}, &Product{}, &Order{}, &OrderItem{})
+	if err != nil {
+		log.Fatal("failed to migrate database:", err)
+	}
 
 	if *initFlag {
 		seedData()
 	} else {
-
-		var count int
-		row := db.QueryRow("SELECT COUNT(*) FROM products")
-		if err := row.Scan(&count); err == nil && count == 0 {
+		var count int64
+		db.Model(&Product{}).Count(&count)
+		if count == 0 {
 			log.Println("Base de datos vacía, sembrando datos...")
 			seedData()
 		}
 	}
 
-	fs := http.FileServer(http.Dir("../frontend"))
-	http.Handle("/", fs)
+	r := gin.Default()
 
-	http.HandleFunc("/api/products", enableCORS(productsHandler))
-	http.HandleFunc("/api/categories", enableCORS(getCategories))
-	http.HandleFunc("/api/orders", enableCORS(createOrder))
+	r.Use(func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(http.StatusOK)
+			return
+		}
+		c.Next()
+	})
+
+	r.Static("/css", "../frontend/css")
+	r.Static("/js", "../frontend/js")
+	r.Static("/components", "../frontend/components")
+	r.StaticFile("/", "../frontend/index.html")
+	r.StaticFile("/index.html", "../frontend/index.html")
+	r.StaticFile("/catalogo.html", "../frontend/catalogo.html")
+	r.StaticFile("/carrito.html", "../frontend/carrito.html")
+	r.StaticFile("/checkout.html", "../frontend/checkout.html")
+	r.StaticFile("/admin.html", "../frontend/admin.html")
+	r.StaticFile("/faq.html", "../frontend/faq.html")
+	r.StaticFile("/politicas.html", "../frontend/politicas.html")
+	r.StaticFile("/thank-you.html", "../frontend/thank-you.html")
+
+	api := r.Group("/api")
+	{
+		api.GET("/products", getProducts)
+		api.POST("/products", createProduct)
+		api.PUT("/products", updateProduct)
+		api.DELETE("/products", deleteProduct)
+		api.GET("/categories", getCategories)
+		api.POST("/orders", createOrder)
+	}
 
 	port := "8080"
 	fmt.Printf("Servidor corriendo en http://localhost:%s\n", port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
-}
-
-func createTables() {
-	query := `
-	CREATE TABLE IF NOT EXISTS categories (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		name TEXT NOT NULL UNIQUE
-	);
-
-	CREATE TABLE IF NOT EXISTS products (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		name TEXT NOT NULL,
-		description TEXT,
-		price INTEGER,
-		image_url TEXT,
-		watering TEXT,
-		light TEXT,
-		category_id INTEGER,
-		stock BOOLEAN,
-		FOREIGN KEY(category_id) REFERENCES categories(id)
-	);
-
-	CREATE TABLE IF NOT EXISTS orders (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		customer_name TEXT,
-		customer_email TEXT,
-		address TEXT,
-		total INTEGER,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	);
-
-	CREATE TABLE IF NOT EXISTS order_items (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		order_id INTEGER,
-		product_id INTEGER,
-		quantity INTEGER,
-		FOREIGN KEY(order_id) REFERENCES orders(id),
-		FOREIGN KEY(product_id) REFERENCES products(id)
-	);
-	`
-	_, err := db.Exec(query)
-	if err != nil {
-		log.Fatal("Error al crear tablas:", err)
-	}
+	r.Run(":" + port)
 }
 
 func seedData() {
-	categories := []string{"Interior", "Exterior", "Suculentas", "Herramientas", "Cactus"}
-	categoryIDsByName := make(map[string]int)
+	db.Exec("DELETE FROM order_items")
+	db.Exec("DELETE FROM orders")
+	db.Exec("DELETE FROM products")
+	db.Exec("DELETE FROM categories")
 
-	categoryStatement, err := db.Prepare("INSERT INTO categories(name) VALUES(?)")
-	if err != nil {
-		log.Fatal(err)
+	categories := []Category{
+		{Name: "Interior"},
+		{Name: "Exterior"},
+		{Name: "Suculentas"},
+		{Name: "Herramientas"},
+		{Name: "Cactus"},
 	}
-	defer categoryStatement.Close()
 
-	for _, categoryName := range categories {
-		result, err := categoryStatement.Exec(categoryName)
-		if err != nil {
-			log.Fatal(err)
+	for i := range categories {
+		db.Create(&categories[i])
+	}
+
+	getCatID := func(name string) uint {
+		for _, c := range categories {
+			if c.Name == name {
+				return c.ID
+			}
 		}
-		id, _ := result.LastInsertId()
-		categoryIDsByName[categoryName] = int(id)
+		return 0
 	}
 
-	products := []struct {
-		Name         string
-		Description  string
-		Price        int
-		ImageURL     string
-		Watering     string
-		Light        string
-		CategoryName string
-		Stock        bool
-	}{
-		{Name: "Monstera Deliciosa", Description: "Planta tropical de interior con hojas grandes y vistosas. Ideal para espacios amplios con luz indirecta.", Price: 15990, ImageURL: "https://d17jkdlzll9byv.cloudfront.net/wp-content/uploads/2022/07/monstera-deliciosa-003.jpg", Watering: "Riego moderado", Light: "Luz indirecta", CategoryName: "Interior", Stock: true},
-		{Name: "Pothos Dorado", Description: "Planta colgante de fácil cuidado. Perfecta para principiantes y espacios con poca luz natural.", Price: 12990, ImageURL: "https://res.cloudinary.com/fronda/image/upload/f_auto,q_auto,c_fill,g_center,w_528,h_704/productos/fol/10012/10012157_1.jpg?02-01-2024", Watering: "Poco riego", Light: "Luz baja-media", CategoryName: "Interior", Stock: true},
-		{Name: "Helecho Boston", Description: "Planta purificadora del aire con follaje exuberante. Ideal para baños y cocinas con humedad.", Price: 9990, ImageURL: "https://cdn.be.green/small/63d3e7c8713d7602115927.jpg", Watering: "Riego frecuente", Light: "Luz indirecta", CategoryName: "Interior", Stock: true},
-		{Name: "Suculenta Mix", Description: "Set de 3 suculentas variadas en macetas decorativas. Requieren poco riego y mantenimiento mínimo.", Price: 8990, ImageURL: "https://cdnx.jumpseller.com/www-feelflowers-cl/image/33635783/thumb/1079/1079?1680287114", Watering: "Poco riego", Light: "Luz directa", CategoryName: "Suculentas", Stock: true},
-		{Name: "Cactus San Pedro", Description: "Cactus columnar de rápido crecimiento. Resistente y de bajo mantenimiento, ideal para exterior.", Price: 6990, ImageURL: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRClTLm2tMnPTTNoi6SjGDUxFXT9-QxUNmjzg&s", Watering: "Muy poco riego", Light: "Sol directo", CategoryName: "Cactus", Stock: true},
-		{Name: "Ficus Lyrata", Description: "También conocida como Higuera de hoja de violín. Planta de interior elegante con hojas grandes.", Price: 18990, ImageURL: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTWQpoUzihEF7JX5YBKxr_ERZ7sfDoY7Ymvbg&s", Watering: "Riego moderado", Light: "Luz brillante", CategoryName: "Interior", Stock: true},
-		{Name: "Sansevieria", Description: "Una de las plantas más resistentes. Perfecta para oficinas y espacios con poca luz.", Price: 11990, ImageURL: "https://www.jardinerosenlima.com/wp-content/uploads/2023/03/Beneficios-y-cuidados-lengua-de-suegra.png", Watering: "Muy poco riego", Light: "Luz baja-alta", CategoryName: "Interior", Stock: true},
-		{Name: "Aloe Vera", Description: "Planta medicinal con múltiples beneficios. Fácil de cuidar y de propiedades curativas.", Price: 7990, ImageURL: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSQrao-I2Go9SnPZupwF0vFa0o1tVbt4GiN6pdMnmqrVPpenCATOJdo-iRY3DhWtJuSbLc&usqp=CAU", Watering: "Poco riego", Light: "Luz directa", CategoryName: "Interior", Stock: true},
-		{Name: "Lavanda", Description: "Planta aromática de flores violetas. Ideal para jardines y balcones soleados.", Price: 9990, ImageURL: "https://cdn.shopify.com/s/files/1/0272/1392/2339/files/Lavanda-dentata_22o__cocoantracita_comprar-plantas-online_plantas-de-interior.jpg?v=1689089438", Watering: "Poco riego", Light: "Sol directo", CategoryName: "Exterior", Stock: true},
+	products := []Product{
+		{Name: "Monstera Deliciosa", Description: "Planta tropical de interior con hojas grandes y vistosas. Ideal para espacios amplios con luz indirecta.", Price: 15990, ImageURL: "https://d17jkdlzll9byv.cloudfront.net/wp-content/uploads/2022/07/monstera-deliciosa-003.jpg", Watering: "Riego moderado", Light: "Luz indirecta", CategoryID: getCatID("Interior"), Stock: true},
+		{Name: "Pothos Dorado", Description: "Planta colgante de fácil cuidado. Perfecta para principiantes y espacios con poca luz natural.", Price: 12990, ImageURL: "https://res.cloudinary.com/fronda/image/upload/f_auto,q_auto,c_fill,g_center,w_528,h_704/productos/fol/10012/10012157_1.jpg?02-01-2024", Watering: "Poco riego", Light: "Luz baja-media", CategoryID: getCatID("Interior"), Stock: true},
+		{Name: "Helecho Boston", Description: "Planta purificadora del aire con follaje exuberante. Ideal para baños y cocinas con humedad.", Price: 9990, ImageURL: "https://cdn.be.green/small/63d3e7c8713d7602115927.jpg", Watering: "Riego frecuente", Light: "Luz indirecta", CategoryID: getCatID("Interior"), Stock: true},
+		{Name: "Suculenta Mix", Description: "Set de 3 suculentas variadas en macetas decorativas. Requieren poco riego y mantenimiento mínimo.", Price: 8990, ImageURL: "https://cdnx.jumpseller.com/www-feelflowers-cl/image/33635783/thumb/1079/1079?1680287114", Watering: "Poco riego", Light: "Luz directa", CategoryID: getCatID("Suculentas"), Stock: true},
+		{Name: "Cactus San Pedro", Description: "Cactus columnar de rápido crecimiento. Resistente y de bajo mantenimiento, ideal para exterior.", Price: 6990, ImageURL: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRClTLm2tMnPTTNoi6SjGDUxFXT9-QxUNmjzg&s", Watering: "Muy poco riego", Light: "Sol directo", CategoryID: getCatID("Cactus"), Stock: true},
+		{Name: "Ficus Lyrata", Description: "También conocida como Higuera de hoja de violín. Planta de interior elegante con hojas grandes.", Price: 18990, ImageURL: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTWQpoUzihEF7JX5YBKxr_ERZ7sfDoY7Ymvbg&s", Watering: "Riego moderado", Light: "Luz brillante", CategoryID: getCatID("Interior"), Stock: true},
+		{Name: "Sansevieria", Description: "Una de las plantas más resistentes. Perfecta para oficinas y espacios con poca luz.", Price: 11990, ImageURL: "https://www.jardinerosenlima.com/wp-content/uploads/2023/03/Beneficios-y-cuidados-lengua-de-suegra.png", Watering: "Muy poco riego", Light: "Luz baja-alta", CategoryID: getCatID("Interior"), Stock: true},
+		{Name: "Aloe Vera", Description: "Planta medicinal con múltiples beneficios. Fácil de cuidar y de propiedades curativas.", Price: 7990, ImageURL: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSQrao-I2Go9SnPZupwF0vFa0o1tVbt4GiN6pdMnmqrVPpenCATOJdo-iRY3DhWtJuSbLc&usqp=CAU", Watering: "Poco riego", Light: "Luz directa", CategoryID: getCatID("Interior"), Stock: true},
+		{Name: "Lavanda", Description: "Planta aromática de flores violetas. Ideal para jardines y balcones soleados.", Price: 9990, ImageURL: "https://cdn.shopify.com/s/files/1/0272/1392/2339/files/Lavanda-dentata_22o__cocoantracita_comprar-plantas-online_plantas-de-interior.jpg?v=1689089438", Watering: "Poco riego", Light: "Sol directo", CategoryID: getCatID("Exterior"), Stock: true},
 	}
 
-	productStatement, err := db.Prepare("INSERT INTO products(name, description, price, image_url, watering, light, category_id, stock) VALUES(?, ?, ?, ?, ?, ?, ?, ?)")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer productStatement.Close()
-
-	_, _ = db.Exec("DELETE FROM products")
-
-	for _, product := range products {
-		categoryID := categoryIDsByName[product.CategoryName]
-		_, err := productStatement.Exec(product.Name, product.Description, product.Price, product.ImageURL, product.Watering, product.Light, categoryID, product.Stock)
-		if err != nil {
-			log.Fatal(err)
-		}
+	for _, p := range products {
+		db.Create(&p)
 	}
 	fmt.Println("¡Base de datos sembrada exitosamente!")
 }
 
-func enableCORS(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		next(w, r)
-	}
-}
-
-func getProducts(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
-		http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
-		return
-	}
-
-	category := r.URL.Query().Get("category")
-	var rows *sql.Rows
+func getProducts(c *gin.Context) {
+	categoryName := c.Query("category")
+	var products []Product
 	var err error
 
-	query := `
-		SELECT p.id, p.name, p.description, p.price, p.image_url, p.watering, p.light, p.category_id, c.name as category, p.stock 
-		FROM products p 
-		JOIN categories c ON p.category_id = c.id
-	`
+	tx := db.Preload("Category")
 
-	if category != "" {
-		query += " WHERE c.name = ?"
-		rows, err = db.Query(query, category)
-	} else {
-		rows, err = db.Query(query)
+	if categoryName != "" {
+		tx = tx.Joins("JOIN categories ON categories.id = products.category_id").
+			Where("categories.name = ?", categoryName)
 	}
 
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err = tx.Find(&products).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	defer rows.Close()
 
-	var products []Product
-	for rows.Next() {
-		var product Product
-		if err := rows.Scan(&product.ID, &product.Name, &product.Description, &product.Price, &product.ImageURL, &product.Watering, &product.Light, &product.CategoryID, &product.Category, &product.Stock); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		products = append(products, product)
+	for i := range products {
+		products[i].CategoryName = products[i].Category.Name
 	}
 
-	if products == nil {
-		products = []Product{}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(products)
+	c.JSON(http.StatusOK, products)
 }
 
-func createOrder(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var order Order
-	if err := json.NewDecoder(r.Body).Decode(&order); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	transaction, err := db.Begin()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	result, err := transaction.Exec("INSERT INTO orders(customer_name, customer_email, address, total) VALUES(?, ?, ?, ?)",
-		order.CustomerName, order.CustomerEmail, order.Address, order.Total)
-	if err != nil {
-		transaction.Rollback()
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	orderID, _ := result.LastInsertId()
-
-	orderItemStatement, err := transaction.Prepare("INSERT INTO order_items(order_id, product_id, quantity) VALUES(?, ?, ?)")
-	if err != nil {
-		transaction.Rollback()
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer orderItemStatement.Close()
-
-	for _, item := range order.Items {
-		_, err = orderItemStatement.Exec(orderID, item.ProductID, item.Quantity)
-		if err != nil {
-			transaction.Rollback()
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	}
-
-	if err := transaction.Commit(); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]interface{}{"id": orderID, "status": "created"})
-}
-
-func productsHandler(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case "GET":
-		getProducts(w, r)
-	case "POST":
-		createProduct(w, r)
-	case "PUT":
-		updateProduct(w, r)
-	case "DELETE":
-		deleteProduct(w, r)
-	default:
-		http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
-	}
-}
-
-func createProduct(w http.ResponseWriter, r *http.Request) {
+func createProduct(c *gin.Context) {
 	var product Product
-	if err := json.NewDecoder(r.Body).Decode(&product); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if err := c.ShouldBindJSON(&product); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	statement, err := db.Prepare("INSERT INTO products(name, description, price, image_url, watering, light, category_id, stock) VALUES(?, ?, ?, ?, ?, ?, ?, ?)")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer statement.Close()
-
-	result, err := statement.Exec(product.Name, product.Description, product.Price, product.ImageURL, product.Watering, product.Light, product.CategoryID, product.Stock)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err := db.Create(&product).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	id, _ := result.LastInsertId()
-	product.ID = int(id)
+	db.Preload("Category").First(&product, product.ID)
+	product.CategoryName = product.Category.Name
 
-	var categoryName string
-	err = db.QueryRow("SELECT name FROM categories WHERE id = ?", product.CategoryID).Scan(&categoryName)
-	if err == nil {
-		product.Category = categoryName
-	}
-
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(product)
+	c.JSON(http.StatusCreated, product)
 }
 
-func updateProduct(w http.ResponseWriter, r *http.Request) {
+func updateProduct(c *gin.Context) {
 	var product Product
-	if err := json.NewDecoder(r.Body).Decode(&product); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if err := c.ShouldBindJSON(&product); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	idStr := r.URL.Query().Get("id")
+	idStr := c.Query("id")
 	if idStr != "" {
 		id, _ := strconv.Atoi(idStr)
-		product.ID = id
+		product.ID = uint(id)
 	}
 
 	if product.ID == 0 {
-		http.Error(w, "ID de producto requerido", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de producto requerido"})
 		return
 	}
 
-	statement, err := db.Prepare("UPDATE products SET name=?, description=?, price=?, image_url=?, watering=?, light=?, category_id=?, stock=? WHERE id=?")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer statement.Close()
-
-	_, err = statement.Exec(product.Name, product.Description, product.Price, product.ImageURL, product.Watering, product.Light, product.CategoryID, product.Stock, product.ID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err := db.Save(&product).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	var categoryName string
-	err = db.QueryRow("SELECT name FROM categories WHERE id = ?", product.CategoryID).Scan(&categoryName)
-	if err == nil {
-		product.Category = categoryName
-	}
+	db.Preload("Category").First(&product, product.ID)
+	product.CategoryName = product.Category.Name
 
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(product)
+	c.JSON(http.StatusOK, product)
 }
 
-func deleteProduct(w http.ResponseWriter, r *http.Request) {
-	idStr := r.URL.Query().Get("id")
+func deleteProduct(c *gin.Context) {
+	idStr := c.Query("id")
 	if idStr == "" {
-		http.Error(w, "ID de producto requerido", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de producto requerido"})
 		return
 	}
 
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		http.Error(w, "ID de producto inválido", http.StatusBadRequest)
+	if err := db.Delete(&Product{}, idStr).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	statement, err := db.Prepare("DELETE FROM products WHERE id=?")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer statement.Close()
-
-	_, err = statement.Exec(id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+	c.JSON(http.StatusOK, gin.H{"status": "deleted"})
 }
 
-func getCategories(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
-		http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
-		return
-	}
-
-	rows, err := db.Query("SELECT id, name FROM categories")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer rows.Close()
-
+func getCategories(c *gin.Context) {
 	var categories []Category
-	for rows.Next() {
-		var category Category
-		if err := rows.Scan(&category.ID, &category.Name); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		categories = append(categories, category)
+	if err := db.Find(&categories).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, categories)
+}
+
+func createOrder(c *gin.Context) {
+	var order Order
+	if err := c.ShouldBindJSON(&order); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
 
-	if categories == nil {
-		categories = []Category{}
+	if err := db.Create(&order).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(categories)
+	c.JSON(http.StatusCreated, gin.H{"id": order.ID, "status": "created"})
 }
