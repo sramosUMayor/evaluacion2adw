@@ -8,10 +8,9 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
-
 
 type Category struct {
 	ID   uint   `json:"id" gorm:"primaryKey"`
